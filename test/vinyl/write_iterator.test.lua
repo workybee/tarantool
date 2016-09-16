@@ -13,7 +13,22 @@ test_run = env.new()
 --   7) replace before delete
 --   8) replace before replace
 --   9) single upsert
---   10) single replace
+--  10) single replace
+
+-- Test upsert tuples merging and correct memory freeing.
+--   1) upsert, upsert, upsert
+--   2) upsert, upsert, replace
+--   3) upsert, upsert, delete
+--   4) upsert, replace, upsert
+--   5) upsert, replace, replace
+--   6) upsert, replace, delete
+--   7) upsert, delete, upsert
+--   8) upsert, delete, replace
+--   9) replace, upsert, upsert
+--  10) replace, upsert, replace
+--  11) replace, upsert, delete
+--  12) replace, replace, upsert
+--  13) replace, delete, upsert
 
 space = box.schema.space.create('test', { engine = 'vinyl' })
 pk = space:create_index('primary', { page_size = 512 * 24, range_size = 512 * 12 })
@@ -271,5 +286,113 @@ space:replace{6, 6, 6, 6, 6, 6, 6}
 box.snapshot()
 space:select{}
 space:delete({6})
+
+-- Test upsert tuples merging and correct memory freeing.
+--   1) upsert, upsert, upsert
+space:upsert({1}, {{'!', 2, 2}})
+space:upsert({1}, {{'!', 2, 3}})
+space:upsert({1}, {{'!', 2, 4}})
+box.snapshot()
+space:select()
+space:delete({1})
+
+--   2) upsert, upsert, replace
+space:replace({1, 1})
+space:upsert({1}, {{'!', 2, 2}})
+space:upsert({1}, {{'!', 2, 3}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   3) upsert, upsert, delete
+space:insert({1})
+space:delete({1})
+space:upsert({1}, {{'!', 2, 2}})
+space:upsert({1}, {{'!', 2, 3}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   4) upsert, replace, upsert
+space:upsert({1}, {{'!', 2, 2}})
+space:replace({1, 3})
+space:upsert({1}, {{'!', 2, 4}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   5) upsert, replace, replace
+space:replace({1, 2})
+space:replace({1, 3})
+space:upsert({1}, {{'!', 2, 4}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   6) upsert, replace, delete
+space:insert({1})
+space:delete({1})
+space:replace({1, 2})
+space:upsert({1}, {{'!', 2, 3}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   7) upsert, delete, upsert
+space:upsert({1}, {{'!', 2, 2}})
+space:delete({1})
+space:upsert({1}, {{'!', 2, 3}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   8) upsert, delete, replace
+space:replace({1})
+space:delete({1})
+space:upsert({1}, {{'!', 2, 2}})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--   9) replace, upsert, upsert
+space:upsert({1}, {{'!', 2, 2}})
+space:upsert({1}, {{'!', 2, 3}})
+space:replace({1, 4})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--  10) replace, upsert, replace
+space:replace({1})
+space:upsert({1}, {{'!', 2, 2}})
+space:replace({1, 3})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--  11) replace, upsert, delete
+space:insert({1})
+space:delete({1})
+space:upsert({1}, {{'!', 2, 2}})
+space:replace({1, 3})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--  12) replace, replace, upsert
+space:upsert({1}, {{'!', 2, 2}})
+space:replace({1, 3})
+space:replace({1, 4})
+box.snapshot()
+space:select{}
+space:delete({1})
+
+--  13) replace, delete, upsert
+space:upsert({1}, {{'!', 2, 2}})
+space:delete({1})
+space:replace({1, 3})
+box.snapshot()
+space:select{}
+space:delete{1}
 
 space:drop()
