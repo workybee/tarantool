@@ -1807,24 +1807,43 @@ vy_run_write_page(struct vy_run *run, int fd, struct vy_write_iterator *wi,
 	page->min_lsn = INT64_MAX;
 	page->offset = run_info->offset + run_info->size;
 
+	struct vy_tuple *prev_tuple = NULL;
 	while (true) {
 		struct vy_tuple *tuple;
+		bool is_dup = false;
+
 		if (vy_write_iterator_get(wi, &tuple) != 0) {
 			run_done = true; /* no more data */
 			break;
 		}
+		if (prev_tuple && vy_tuple_compare(prev_tuple->data,
+					tuple->data, key_def) == 0)
+			is_dup = true;
+
 		if (split_key != NULL && vy_tuple_compare(tuple->data,
 					split_key->data, key_def) >= 0) {
 			/* Split key reached, proceed to the next run. */
 			run_done = true;
+			assert(!is_dup);
 			break;
 		}
-		if (vy_buf_used(&values) >= page_size)
+
+		/* All operations on the same key must go to the same page. */
+		if (!is_dup && vy_buf_used(&values) >= page_size)
 			break;
+
 		if (vy_run_dump_tuple(tuple, &tuplesinfo, &values, page) != 0)
 			goto err;
+
+		vy_tuple_ref(tuple);
+		prev_tuple = tuple;
+
 		vy_write_iterator_next(wi);
 	}
+
+	if (prev_tuple)
+		vy_tuple_unref(prev_tuple);
+
 	page->unpacked_size = vy_buf_used(&tuplesinfo) + vy_buf_used(&values);
 	page->unpacked_size = ALIGN_POS(page->unpacked_size);
 
@@ -2834,7 +2853,7 @@ vy_task_dump_execute(struct vy_task *task)
 		if (rc != 0)
 			goto out;
 	}
-	rc = vy_run_write(range->fd, wi, NULL, NULL,
+	rc = vy_run_write(range->fd, wi, NULL, index->key_def,
 			  index->key_def->opts.page_size,
 			  &task->dump.new_run);
 out:
