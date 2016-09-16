@@ -7684,6 +7684,7 @@ struct vy_write_iterator {
 	struct vy_tuple *key;
 	struct vy_tuple *curr_tuple;
 	struct vy_merge_iterator mi;
+	bool rep_del_met;
 };
 
 /*
@@ -7700,6 +7701,7 @@ vy_write_iterator_open(struct vy_write_iterator *wi, bool save_delete,
 	wi->curr_tuple = NULL;
 	wi->goto_next_key = false;
 	wi->key = vy_tuple_from_key(index, NULL, 0);
+	wi->rep_del_met = false;
 	vy_merge_iterator_open(&wi->mi, index->key_def, VINYL_GE,
 			       wi->key->data);
 }
@@ -7806,6 +7808,7 @@ vy_write_iterator_next(struct vy_write_iterator *wi)
 		if (wi->goto_next_key) {
 			rc = vy_merge_iterator_next_key(mi);
 			wi->goto_next_key = false;
+			wi->rep_del_met = false;
 		}
 		/*
 		 * If we reached the end of the key LSNs then go to
@@ -7820,6 +7823,7 @@ vy_write_iterator_next(struct vy_write_iterator *wi)
 				break;
 			}
 			rc = vy_merge_iterator_next_key(mi);
+			wi->rep_del_met = false;
 			if (rc)
 				break;
 		}
@@ -7827,8 +7831,14 @@ vy_write_iterator_next(struct vy_write_iterator *wi)
 		if (rc)
 			break;
 		if (tuple->lsn > wi->purge_lsn) {
-			/* Save the current tuple as the result. */
+			wi->rep_del_met |= tuple->flags &
+				(SVREPLACE | SVDELETE);
 			break;
+		}
+		if (wi->rep_del_met) {
+			wi->rep_del_met = false;
+			wi->goto_next_key = true;
+			continue;
 		}
 		/* The merge iterator now is below the purge  LSN. */
 		if (tuple->flags & SVREPLACE) {
