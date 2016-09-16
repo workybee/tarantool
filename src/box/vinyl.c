@@ -7911,8 +7911,11 @@ vy_write_iterator_next(struct vy_write_iterator *wi)
 static int
 vy_write_iterator_get(struct vy_write_iterator *wi, struct vy_tuple **result)
 {
-	if (wi->curr_tuple == NULL && vy_write_iterator_next(wi))
-		return 1;
+	if (wi->curr_tuple == NULL) {
+		int rc = vy_write_iterator_next(wi);
+		if (rc)
+			return rc;
+	}
 	if (result)
 		*result = wi->curr_tuple;
 	return 0;
